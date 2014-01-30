@@ -17,7 +17,7 @@ Mat perspective_warped_image;
 Point2f  src_pts[4], dst_pts[4];
 
 void overlayImage();
-void ChessBoard(Mat image);
+int ChessBoard(Mat image);
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -176,8 +176,10 @@ void display(){
 	src_pts[2] =  Point2f(0, image.rows);
 	src_pts[3] =  Point2f(image.cols, image.rows);
 
-	ChessBoard(image);
-	overlayImage();
+	if(ChessBoard(image))
+	{
+		overlayImage();
+	}
 
 	imshow("Show Image", frame);
 
@@ -231,7 +233,7 @@ int main(int argc, char** argv)
 
 }
 
-void ChessBoard(Mat image)
+int ChessBoard(Mat image)
 {
 	Size patternsize(7,7); //interior number of corners
 	Mat gray;
@@ -254,9 +256,10 @@ void ChessBoard(Mat image)
 
 		Mat perspective_matrix = getPerspectiveTransform(src_pts, dst_pts);
 		warpPerspective(image, perspective_warped_image, perspective_matrix, perspective_warped_image.size());
-		overlayImage();
-	}
 
+		return 1;
+	}
+	return 0;
 }
 
 void overlayImage()
