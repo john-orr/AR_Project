@@ -20,6 +20,7 @@ GLuint shaderProgramID;
 
 void overlayImage();
 int ChessBoard(Mat image);
+unsigned char* buffer;
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -172,7 +173,7 @@ void display(){
 	glDrawArrays(GL_TRIANGLES, 0, 3);
     glutSwapBuffers();
 
-	unsigned char* buffer = new unsigned char[frame.cols*frame.rows*3];
+	//unsigned char* buffer = new unsigned char[frame.cols*frame.rows*3];
 	glReadPixels(0, 0, frame.cols, frame.rows, GL_BGR, GL_UNSIGNED_BYTE, buffer);
 	Mat image(frame.rows, frame.cols, CV_8UC3, buffer);
 
@@ -215,6 +216,7 @@ int main(int argc, char** argv)
 	cap = VideoCapture(0);
 	cap >> frame;
 
+	buffer = new unsigned char[frame.cols*frame.rows*3];
 	// Set up the window
 	glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
