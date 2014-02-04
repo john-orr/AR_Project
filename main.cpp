@@ -4,6 +4,7 @@
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/calib3d/calib3d.hpp"
+#include "maths_funcs.h"
 
 #include <GL/glew.h>
 #include <GL/freeglut.h>
@@ -15,6 +16,7 @@ VideoCapture cap;
 Mat frame;
 Mat perspective_warped_image;
 Point2f  src_pts[4], dst_pts[4];
+GLuint shaderProgramID;
 
 void overlayImage();
 int ChessBoard(Mat image);
@@ -31,11 +33,11 @@ static const char* pVS = "                                                    \n
 in vec3 vPosition;															  \n\
 in vec4 vColor;																  \n\
 out vec4 color;																 \n\
-                                                                              \n\
+uniform mat4 proj, view, model;                                                                              \n\
                                                                                \n\
 void main()                                                                     \n\
 {                                                                                \n\
-    gl_Position = vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
+    gl_Position = proj * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
 	color = vColor;							\n\
 }";
 
@@ -43,10 +45,10 @@ static const char* pFS = "                                              \n\
 #version 330                                                            \n\
                                                                         \n\
 out vec4 FragColor;                                                      \n\
-                                                                          \n\
+in vec4 color;                                                                          \n\
 void main()                                                               \n\
 {                                                                          \n\
-FragColor = vec4(1.0, 0.0, 0.0, 1.0);									 \n\
+FragColor = color;									 \n\
 }";
 
 
@@ -161,7 +163,10 @@ void display(){
 	cap >> frame;
 
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
-
+	glUseProgram (shaderProgramID);
+	int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
+	mat4 persp_proj = perspective(45.0, (float)frame.cols/(float)frame.rows, 0.1, 200.0);
+	glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, persp_proj.m);
 	glClear(GL_COLOR_BUFFER_BIT);
 	// NB: Make the call to draw the geometry in the currently activated vertex buffer. This is where the GPU starts to work!
 	glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -190,15 +195,15 @@ void display(){
 void init()
 {	
 	// Create 3 vertices that make up a triangle that fits on the viewport 
-	GLfloat vertices[] = {-1.0f, -1.0f, 0.0f,
-			1.0f, -1.0f, 0.0f,
-			0.0f, 1.0f, 0.0f};
+	GLfloat vertices[] = {-0.5f, -0.5f, -4.0f,
+			0.5f, -0.5f, -2.0f,
+			0.0f, 0.5f, -2.0f};
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
 	GLfloat colors[] = {0.0f, 1.0f, 0.0f, 1.0f,
 			1.0f, 0.0f, 0.0f, 1.0f,
 			0.0f, 0.0f, 1.0f, 1.0f};
 	// Set up the shaders
-	GLuint shaderProgramID = CompileShaders();
+	shaderProgramID = CompileShaders();
 	// Put the vertices and colors into a vertex buffer object
 	generateObjectBuffer(vertices, colors);
 	// Link the current buffer to the shader
