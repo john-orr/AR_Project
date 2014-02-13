@@ -17,9 +17,30 @@ Mat frame;
 Mat perspective_warped_image;
 Point2f  src_pts[4], dst_pts[4];
 GLuint shaderProgramID;
+unsigned char* buffer;
+
+//Calibration variables
+bool calibrated = false;
+Size patternsize(7,7); //interior number of corners
+Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
+Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
+vector<Mat> rvecs, tvecs;
+vector<vector<Point2f>> imagePoints;
+vector<vector<Point3f>> objectPoints;
+Mat projection = Mat::zeros(4, 4, CV_64F);;
+Mat modelview = Mat::zeros(4, 4, CV_64F);;
+Mat openGLtoCV;
+mat4 model;
+int testImages = 0;
+double zNear = 0.1;
+double zFar = 500;
 
 void overlayImage();
-int ChessBoard(Mat image);
+void ChessBoard();
+void calibrateCameraMatrix();
+float* getTransform(Mat& mat);
+void generateProjectionModelview(const cv::Mat& calibration, const cv::Mat& rotation, const cv::Mat& translation, cv::Mat& projection, cv::Mat& modelview);
+GLfloat* convertMatrixType(const cv::Mat& m);
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -37,7 +58,7 @@ uniform mat4 proj, view, model;                                                 
                                                                                \n\
 void main()                                                                     \n\
 {                                                                                \n\
-    gl_Position = proj * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
+    gl_Position = proj * view * model * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
 	color = vColor;							\n\
 }";
 
@@ -163,29 +184,31 @@ void display(){
 	cap >> frame;
 
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
-	glUseProgram (shaderProgramID);
-	int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
-	mat4 persp_proj = perspective(45.0, (float)frame.cols/(float)frame.rows, 0.1, 200.0);
-	glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, persp_proj.m);
+
+
 	glClear(GL_COLOR_BUFFER_BIT);
-	// NB: Make the call to draw the geometry in the currently activated vertex buffer. This is where the GPU starts to work!
-	glDrawArrays(GL_TRIANGLES, 0, 3);
-    glutSwapBuffers();
-
-	unsigned char* buffer = new unsigned char[frame.cols*frame.rows*3];
-	glReadPixels(0, 0, frame.cols, frame.rows, GL_BGR, GL_UNSIGNED_BYTE, buffer);
-	Mat image(frame.rows, frame.cols, CV_8UC3, buffer);
-
-	src_pts[0] =  Point2f(0, 0);
-	src_pts[1] =  Point2f(image.cols, 0);
-	src_pts[2] =  Point2f(0, image.rows);
-	src_pts[3] =  Point2f(image.cols, image.rows);
-
-	if(ChessBoard(image))
+		
+	if(!calibrated)
 	{
-		overlayImage();
+		calibrateCameraMatrix();
 	}
 
+	if(calibrated)
+	{
+		ChessBoard();
+	}
+
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glutSwapBuffers();
+
+	buffer = new unsigned char[frame.cols*frame.rows*3];
+	glReadPixels(0, 0, frame.cols, frame.rows, GL_BGR, GL_UNSIGNED_BYTE, buffer);
+	Mat image(frame.rows, frame.cols, CV_8UC3, buffer);
+	flip(image,image,0);
+
+	openGLtoCV = image.clone();
+	
+	overlayImage();
 	imshow("Show Image", frame);
 
 	glutPostRedisplay();
@@ -195,9 +218,9 @@ void display(){
 void init()
 {	
 	// Create 3 vertices that make up a triangle that fits on the viewport 
-	GLfloat vertices[] = {-0.5f, -0.5f, -4.0f,
-			0.5f, -0.5f, -2.0f,
-			0.0f, 0.5f, -2.0f};
+	GLfloat vertices[] = {  -0.5f, 0.0f, 0.0f,
+							0.0f, 0.5f, 0.0f,
+							0.5f, 0.0f, 0.0f};
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
 	GLfloat colors[] = {0.0f, 1.0f, 0.0f, 1.0f,
 			1.0f, 0.0f, 0.0f, 1.0f,
@@ -208,13 +231,26 @@ void init()
 	generateObjectBuffer(vertices, colors);
 	// Link the current buffer to the shader
 	linkCurrentBuffertoShader(shaderProgramID);	
+	glUseProgram (shaderProgramID);
+
+	int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
+	int view_mat_location = glGetUniformLocation (shaderProgramID, "view");
+	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
+
+	mat4 persp_proj = perspective(170.0, (float)frame.cols/(float)frame.rows, 0.1, 500.0);
+	mat4 view = identity_mat4();
+	model = translate(identity_mat4(),vec3(0,0,-0.1));
+	
+	glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, persp_proj.m);
+	glUniformMatrix4fv (view_mat_location, 1, GL_FALSE, view.m);
+	glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, model.m);
 }
 
 int main(int argc, char** argv)
 {
 	cap = VideoCapture(0);
 	cap >> frame;
-
+	cap >> frame;
 	// Set up the window
 	glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
@@ -232,47 +268,117 @@ int main(int argc, char** argv)
     }
 	// Set up your objects and shaders
 	init();
+	glViewport (0, 0, frame.cols, frame.rows);
 	// Begin infinite event loop
 	glutMainLoop();
     return 0;
 
 }
 
-int ChessBoard(Mat image)
+void calibrateCameraMatrix()
 {
-	Size patternsize(7,7); //interior number of corners
 	Mat gray;
-	vector<Point2f> corners; //this will be filled by the detected corners
+	vector<Point2f> pointBuf;
+	vector<Point3f> objectCorners;
+
+	int squareLength = 1;
+
+	cvtColor(frame, gray, CV_BGR2GRAY);
+
+	bool patternfound = findChessboardCorners(gray, patternsize, pointBuf, CALIB_CB_FAST_CHECK);
+
+	if(patternfound)
+	{
+		testImages++;
+		cornerSubPix(gray, pointBuf, Size(11, 11), Size(-1, -1),TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 30, 0.1));
+
+		imagePoints.push_back(pointBuf);
+		
+		for(int i = 0; i<7; i++){
+            for(int j=0;j<7;j++){
+                objectCorners.push_back(cv::Point3f(float(i)*squareLength,float(j)*squareLength,0.0f));
+            }
+        }
+
+		objectPoints.push_back(objectCorners);
+
+		cout << "pointBuf: " << objectCorners.size() << endl;
+		cout << "objectCorners: " << pointBuf.size() << endl;
+		cout << "Images: " << testImages << endl;
+		cout << "ImagePoints: " << imagePoints.size() << endl;
+		cout << "ObjectPoints: " << objectPoints.size() << endl;
+		cout << "************\n";
+	
+	}
+
+	if(testImages >= 1)
+	{
+		calibrated = true;
+		cout << "calibrating! No Images:" << testImages + 1 << endl;
+		calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs, 0);
+		cout << "Just calibrated!\n";
+	}
+
+}
+
+void ChessBoard()
+{
+	Mat gray;
+	vector<Point2f> points;				//this will be filled by the detected corners
+	vector<Point2f> corners;
+	vector<Point3f> Coords3d;
+	Mat rotation;						// The calculated rotation of the chess board.
+	Mat translation;					// The calculated translation of the chess board.
+	double squareLength = 0.5;
 	bool patternfound;
 
 	cvtColor(frame, gray, CV_BGR2GRAY); //source image
 		
 	//CALIB_CB_FAST_CHECK saves a lot of time on images
 	//that do not contain any chessboard corners
-	patternfound = findChessboardCorners(gray, patternsize, corners,/*CALIB_CB_ADAPTIVE_THRESH + CALIB_CB_NORMALIZE_IMAGE+ */CALIB_CB_FAST_CHECK);
+	patternfound = findChessboardCorners(gray, patternsize, points, CALIB_CB_FAST_CHECK);
 
 	if(patternfound)
 	{
+
 		//cornerSubPix(gray, corners, Size(11, 11), Size(-1, -1),TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 30, 0.1));
-		dst_pts[0] =  corners[0];
-		dst_pts[1] =  corners[6];
-		dst_pts[2] =  corners[42];
-		dst_pts[3] =  corners[48];
 
-		Mat perspective_matrix = getPerspectiveTransform(src_pts, dst_pts);
-		warpPerspective(image, perspective_warped_image, perspective_matrix, perspective_warped_image.size());
+		corners.push_back(points[0]);
+		corners.push_back(points[6]);
+		corners.push_back(points[42]);
+		corners.push_back(points[48]);
 
-		return 1;
+		for(int i = 0; i<2; i++){
+            for(int j=0;j<2;j++){
+                Coords3d.push_back(cv::Point3f(float(i)*squareLength,float(j)*squareLength,0.0f));
+            }
+        }
+		
+		solvePnP(Coords3d, corners, cameraMatrix, distCoeffs, rotation, translation);
+		Mat rotationMatrix;
+		Rodrigues(rotation, rotationMatrix);
+		generateProjectionModelview(cameraMatrix, rotationMatrix, translation, projection, modelview);
+
+		int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
+		int view_mat_location = glGetUniformLocation (shaderProgramID, "view");
+		int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
+
+		GLfloat* modelV = convertMatrixType(modelview);
+		GLfloat* projV = convertMatrixType(projection);
+		
+
+		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV);
+		glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, projV);
+
 	}
-	return 0;
+
 }
 
 void overlayImage()
 {
 	vector<Mat> bgr;
 
-	split(perspective_warped_image, bgr);
-	//cvtColor(perspective_warped_image, tmp_gray, CV_BGR2GRAY);
+	split(openGLtoCV, bgr);
 
 	for(int i=0;i<frame.cols;i++)
 	{
@@ -284,11 +390,92 @@ void overlayImage()
 
 			if(!(blue == 0 && green == 0 && red == 0))
 			{
-				frame.at<Vec3b>(j,i)[0] = perspective_warped_image.at<Vec3b>(j,i)[0];
-				frame.at<Vec3b>(j,i)[1] = perspective_warped_image.at<Vec3b>(j,i)[1];
-				frame.at<Vec3b>(j,i)[2] = perspective_warped_image.at<Vec3b>(j,i)[2];
-				perspective_warped_image.at<Vec3b>(j,i) = 255;
+				frame.at<Vec3b>(j,i)[0] = openGLtoCV.at<Vec3b>(j,i)[0];
+				frame.at<Vec3b>(j,i)[1] = openGLtoCV.at<Vec3b>(j,i)[1];
+				frame.at<Vec3b>(j,i)[2] = openGLtoCV.at<Vec3b>(j,i)[2];
+				openGLtoCV.at<Vec3b>(j,i) = 255;
 			}
 		}
 	}
 } 
+
+float* getTransform(Mat& mat)
+{
+	float transform_temp[] = {
+								mat.at<double>(0,0), mat.at<double>(0,1), mat.at<double>(0,2), 0,
+								mat.at<double>(1,0), mat.at<double>(1,1), mat.at<double>(1,2), 0,
+								mat.at<double>(2,0), mat.at<double>(1,1), mat.at<double>(2,2), 0
+							};
+	return transform_temp;
+}
+
+void generateProjectionModelview(const cv::Mat& calibration, const cv::Mat& rotation, const cv::Mat& translation, cv::Mat& projection, cv::Mat& modelview)
+{
+	typedef double precision;
+
+ 	projection.at<precision>(0,0) = 2*calibration.at<precision>(0,0)/640;
+	projection.at<precision>(1,0) = 0;
+	projection.at<precision>(2,0) = 0;
+	projection.at<precision>(3,0) = 0;
+
+	projection.at<precision>(0,1) = 0;
+	projection.at<precision>(1,1) = 2*calibration.at<precision>(1,1)/480;
+	projection.at<precision>(2,1) = 0;
+	projection.at<precision>(3,1) = 0;
+
+
+	projection.at<precision>(0,2) = 1-2*calibration.at<precision>(0,2)/640;
+	projection.at<precision>(1,2) = -1+(2*calibration.at<precision>(1,2)+2)/480;
+	projection.at<precision>(2,2) = (zNear+zFar)/(zNear - zFar);
+	projection.at<precision>(3,2) = -1;
+
+	projection.at<precision>(0,3) = 0;
+	projection.at<precision>(1,3) = 0;
+	projection.at<precision>(2,3) = 2*zNear*zFar/(zNear - zFar);
+	projection.at<precision>(3,3) = 0;
+	
+	
+	modelview.at<precision>(0,0) = rotation.at<precision>(0,0);
+	modelview.at<precision>(1,0) = rotation.at<precision>(1,0);
+	modelview.at<precision>(2,0) = rotation.at<precision>(2,0);
+	modelview.at<precision>(3,0) = 0;
+
+	modelview.at<precision>(0,1) = rotation.at<precision>(0,1);
+	modelview.at<precision>(1,1) = rotation.at<precision>(1,1);
+	modelview.at<precision>(2,1) = rotation.at<precision>(2,1);
+	modelview.at<precision>(3,1) = 0;
+
+	modelview.at<precision>(0,2) = rotation.at<precision>(0,2);
+	modelview.at<precision>(1,2) = rotation.at<precision>(1,2);
+	modelview.at<precision>(2,2) = rotation.at<precision>(2,2);
+	modelview.at<precision>(3,2) = 0;
+
+	modelview.at<precision>(0,3) = translation.at<precision>(0,0);
+	modelview.at<precision>(1,3) = translation.at<precision>(1,0);
+	modelview.at<precision>(2,3) = translation.at<precision>(2,0);
+	modelview.at<precision>(3,3) = 1;
+
+	// This matrix corresponds to the change of coordinate systems.
+	static double changeCoordArray[4][4] = {{1, 0, 0, 0}, {0, -1, 0, 0}, {0, 0, -1, 0}, {0, 0, 0, 1}};
+	static Mat changeCoord(4, 4, CV_64FC1, changeCoordArray);
+	
+	modelview = changeCoord*modelview;
+}
+
+GLfloat* convertMatrixType(const cv::Mat& m)
+{
+	typedef double precision;
+
+	Size s = m.size();
+	GLfloat* mGL = new GLfloat[s.width*s.height];
+
+	for(int ix = 0; ix < s.width; ix++)
+	{
+		for(int iy = 0; iy < s.height; iy++)
+		{
+			mGL[ix*s.height + iy] = m.at<precision>(iy, ix);
+		}
+	}
+
+	return mGL;
+}
