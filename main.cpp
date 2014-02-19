@@ -148,7 +148,7 @@ GLuint CompileShaders()
 // VBO Functions - click on + to expand
 #pragma region VBO_FUNCTIONS
 GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
-	GLuint numVertices = 3;
+	GLuint numVertices = 36;
 	// Genderate 1 generic buffer object, called VBO
 	GLuint VBO;
  	glGenBuffers(1, &VBO);
@@ -164,7 +164,7 @@ return VBO;
 }
 
 void linkCurrentBuffertoShader(GLuint shaderProgramID){
-	GLuint numVertices = 3;
+	GLuint numVertices = 36;
 	// find the location of the variables that we will be using in the shader program
 	GLuint positionID = glGetAttribLocation(shaderProgramID, "vPosition");
 	GLuint colorID = glGetAttribLocation(shaderProgramID, "vColor");
@@ -186,7 +186,7 @@ void display(){
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
 
 
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		
 	if(!calibrated)
 	{
@@ -198,7 +198,7 @@ void display(){
 		ChessBoard();
 	}
 
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glDrawArrays(GL_TRIANGLES, 0, 36);
 	glutSwapBuffers();
 
 	buffer = new unsigned char[frame.cols*frame.rows*3];
@@ -218,13 +218,59 @@ void display(){
 void init()
 {	
 	// Create 3 vertices that make up a triangle that fits on the viewport 
-	GLfloat vertices[] = {  -0.5f, 0.0f, 0.0f,
-							0.0f, 0.5f, 0.0f,
-							0.5f, 0.0f, 0.0f};
+	GLfloat vertices[] = {  
+						  -1.0f,  1.0f, -1.0f, 
+						   1.0f,  1.0f, -1.0f, 
+						   1.0f, -1.0f, -1.0f, 
+						   1.0f, -1.0f, -1.0f,  
+						  -1.0f, -1.0f, -1.0f, 
+						  -1.0f,  1.0f, -1.0f, 
+
+						  -1.0f,  1.0f, 1.0f,  
+						   1.0f,  1.0f, 1.0f, 
+						   1.0f, -1.0f, 1.0f, 
+						   1.0f, -1.0f, 1.0f,  
+						  -1.0f, -1.0f, 1.0f, 
+						  -1.0f,  1.0f, 1.0f, 
+	
+						  -1.0f,  1.0f, -1.0f,
+						   1.0f,  1.0f, -1.0f,
+						   1.0f,  1.0f, 1.0f, 
+						   1.0f,  1.0f, 1.0f,
+						  -1.0f,  1.0f, 1.0f, 
+						  -1.0f,  1.0f, -1.0f, 
+
+						  -1.0f,  -1.0f, -1.0f, 
+						   1.0f,  -1.0f, -1.0f, 
+						   1.0f,  -1.0f, 1.0f,
+						   1.0f,  -1.0f, 1.0f, 
+						  -1.0f,  -1.0f, 1.0f, 
+						  -1.0f,  -1.0f, -1.0f,
+
+						  -1.0f,   1.0f, 1.0f, 
+						  -1.0f,  -1.0f, 1.0f, 
+						  -1.0f,  -1.0f, -1.0f, 
+						  -1.0f,  -1.0f, -1.0f, 
+						  -1.0f,   1.0f, -1.0f, 
+						  -1.0f,   1.0f, 1.0f, 
+	
+						   1.0f,   1.0f, 1.0f, 
+						   1.0f,  -1.0f, 1.0f, 
+						   1.0f,  -1.0f, -1.0f, 
+						   1.0f,  -1.0f, -1.0f, 
+						   1.0f,   1.0f, -1.0f, 
+						   1.0f,   1.0f, 1.0f
+						};
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
 	GLfloat colors[] = {0.0f, 1.0f, 0.0f, 1.0f,
-			1.0f, 0.0f, 0.0f, 1.0f,
-			0.0f, 0.0f, 1.0f, 1.0f};
+						1.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f};
 	// Set up the shaders
 	shaderProgramID = CompileShaders();
 	// Put the vertices and colors into a vertex buffer object
@@ -244,6 +290,11 @@ void init()
 	glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, persp_proj.m);
 	glUniformMatrix4fv (view_mat_location, 1, GL_FALSE, view.m);
 	glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, model.m);
+
+	// Enable depth test
+	glEnable(GL_DEPTH_TEST);
+	// Accept fragment if it closer to the camera than the former one
+	glDepthFunc(GL_LESS);
 }
 
 int main(int argc, char** argv)
@@ -251,6 +302,7 @@ int main(int argc, char** argv)
 	cap = VideoCapture(0);
 	cap >> frame;
 	cap >> frame;
+	cout << "Width:" << frame.cols << " Height:" << frame.rows << endl;
 	// Set up the window
 	glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
@@ -329,7 +381,7 @@ void ChessBoard()
 	vector<Point3f> Coords3d;
 	Mat rotation;						// The calculated rotation of the chess board.
 	Mat translation;					// The calculated translation of the chess board.
-	double squareLength = 0.5;
+	double squareLength = 1;
 	bool patternfound;
 
 	cvtColor(frame, gray, CV_BGR2GRAY); //source image
@@ -413,13 +465,13 @@ void generateProjectionModelview(const cv::Mat& calibration, const cv::Mat& rota
 {
 	typedef double precision;
 
- 	projection.at<precision>(0,0) = 2*calibration.at<precision>(0,0)/640;
+ 	projection.at<precision>(0,0) = 2*calibration.at<precision>(0,0)/640;//X
 	projection.at<precision>(1,0) = 0;
 	projection.at<precision>(2,0) = 0;
 	projection.at<precision>(3,0) = 0;
 
 	projection.at<precision>(0,1) = 0;
-	projection.at<precision>(1,1) = 2*calibration.at<precision>(1,1)/480;
+	projection.at<precision>(1,1) = 2*calibration.at<precision>(1,1)/480;//Y
 	projection.at<precision>(2,1) = 0;
 	projection.at<precision>(3,1) = 0;
 
