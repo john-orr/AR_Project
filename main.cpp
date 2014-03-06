@@ -37,12 +37,22 @@ int testImages = 0;
 double zNear = 0.1;
 double zFar = 500;
 
+
 void overlayImage();
 void ChessBoard();
 void calibrateCameraMatrix();
 float* getTransform(Mat& mat);
 void generateProjectionModelview(const cv::Mat& calibration, const cv::Mat& rotation, const cv::Mat& translation, cv::Mat& projection, cv::Mat& modelview);
 GLfloat* convertMatrixType(const cv::Mat& m);
+
+bool found=false;
+Mat object_mat;
+Rect obj;
+int radius;
+Mat mask;
+Mat getNormalizedRGB(const Mat& rgb);
+bool find_rough(Mat src, Point& object_center, Rect& object);
+float find_euclidian(float r, float g, float b, float r_t, float g_t, float b_t);
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -227,6 +237,17 @@ vec3 convertToModelCoords(vec3 worldcoords){
 void display(){
 
 	cap >> frame;
+
+	cap >> frame;
+	Point object_pt;
+	mask = Mat(frame.size(), CV_8UC1);
+	if(found == false)
+		found = find_rough(frame, object_pt, obj);
+	if(found == true){
+		circle(frame, object_pt, radius, CV_RGB(0,0,255), 1, 8, 0);
+		found =false;
+	}
+
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
 
 
@@ -599,3 +620,77 @@ GLfloat* convertMatrixType(const cv::Mat& m)
 
 	return mGL;
 }
+
+bool find_rough(Mat src, Point& object_center, Rect& object){
+	int erosion_size = 3;
+	int max_size=0, max_number=0;
+	Mat element = getStructuringElement( MORPH_RECT, Size( 2*erosion_size + 1, 2*erosion_size+1 ), Point( erosion_size, erosion_size ) );
+	Mat contour_mat;
+	vector<vector<Point> > contours;
+	vector<Vec4i> hierarchy;
+	vector<RotatedRect> objects;
+	getNormalizedRGB(src);
+	/*
+	cvtColor(src, src, CV_BGR2HSV);
+	inRange(src, Scalar(hue_min,lum_min,sat_min), Scalar(hue_max,lum_max,sat_max), mask);
+	morphologyEx( mask, mask , MORPH_CLOSE, element , Point(-1,-1), 1);
+	*/
+	int thresh = 180;
+	for(int col=0; col<src.cols; col++){
+		for(int row=0; row<src.rows; row++){
+			if(find_euclidian(float(src.at<Vec3b>(row, col)[0]), float(src.at<Vec3b>(row, col)[1]), float(src.at<Vec3b>(row, col)[2]),0,255,0) < thresh){
+				mask.at<uchar>(row, col)=255;
+			}
+			else
+				mask.at<uchar>(row, col)=0;
+		}
+
+	}
+
+	contour_mat = mask.clone();
+	findContours( contour_mat, contours, hierarchy, CV_RETR_EXTERNAL , CV_CHAIN_APPROX_NONE, Point(0, 0) );
+	for(int i=0; i<contours.size(); i++){
+		objects.push_back(minAreaRect(contours[i]));
+		if(objects[i].size.area()>max_size){
+			max_size = objects[i].size.area();
+			max_number = i;
+		}
+	}
+	if(contours.size()>0){
+		if(objects[max_number].size.height>src.size().width/100){
+			object_center = objects[max_number].center;
+			radius = objects[max_number].size.height;
+			if((objects[max_number].center.x+objects[max_number].size.width) < src.size().width 
+				&& (objects[max_number].center.x-objects[max_number].size.width)>0
+				&&(objects[max_number].center.y+objects[max_number].size.height) < src.size().height
+				&&(objects[max_number].center.y-objects[max_number].size.height)>0)
+			{
+			object = Rect(Point(object_center.x+(objects[max_number].size.width*0.5), object_center.y+(objects[max_number].size.height*0.5)), 
+				Point(object_center.x-(objects[max_number].size.width*0.5), object_center.y-(objects[max_number].size.height*0.5)));
+			//cout<<"rectangle height "<<object.height<<" rectangle width "<<object.width<<endl;
+			return true;
+			}
+		}
+	}
+	radius = 0;
+	return false;
+}
+
+float find_euclidian(float r, float g, float b, float r_t, float g_t, float b_t){
+	//D = sqrt((R-0)^2 + (G-255)^2 + (B-0)^2)
+	float dist = (pow( r-r_t, 2) + pow(g-g_t, 2) + pow(b-b_t, 2));
+	return pow(dist, 0.5);
+}
+
+Mat getNormalizedRGB(const Mat& rgb) {
+	assert(rgb.type() == CV_8UC3);
+	Mat rgb32f; rgb.convertTo(rgb32f, CV_32FC3);
+		
+	vector<Mat> split_rgb; split(rgb32f, split_rgb);
+	Mat sum_rgb = split_rgb[0] + split_rgb[1] + split_rgb[2];
+	split_rgb[0].setTo(0); //split_rgb[0] / sum_rgb;
+	split_rgb[1] = split_rgb[1] / sum_rgb;
+	split_rgb[2] = split_rgb[2] / sum_rgb;
+	merge(split_rgb,rgb32f);
+	return rgb32f;
+	}
