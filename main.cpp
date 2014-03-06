@@ -180,11 +180,6 @@ void linkCurrentBuffertoShader(GLuint shaderProgramID){
 }
 #pragma endregion VBO_FUNCTIONS
 
-
-void keypress(unsigned char key, int x, int y){
-	cout << "A button was pressed but I'm not going to do shit. #0FUCKSGIVEN\n";
-}
-
 void translateVertex (vec3 vertex, vec3 endpoint){
 	//calculate the translation matrix for the point and pointer movement
 	//mat4 mat_translation = translate(identity_mat4(), vec3(endpoint.v[0]-startpoint.v[0], -(endpoint.v[1]-startpoint.v[1]), -(endpoint.v[2]-startpoint.v[2])));
@@ -209,12 +204,24 @@ void translateVertex (vec3 vertex, vec3 endpoint){
 }
 
 vec3 convertToModelCoords(vec3 worldcoords){
-	//derive inverse of matrices
-	mat4 model_inv = inverse(model);
+	//make a mat4 version of the modelview matrix
+	GLfloat* modelV = convertMatrixType(modelview);
+	mat4 temp = mat4(modelV[0], modelV[4], modelV[8], modelV[12],
+						modelV[1], modelV[5], modelV[9], modelV[13],
+						modelV[2], modelV[6], modelV[10], modelV[14],
+						modelV[3], modelV[7], modelV[11], modelV[15]);
+	
+	//derive inverse of the matrices
+	mat4 model_inv = inverse(temp);
 	mat4 view_inv = inverse(view);
 	mat4 proj_inv = inverse(persp_proj);
 
-	return vec3(0, 0, 0);
+	//undo the effects of those darn matrices
+	mat4 trans = translate(identity_mat4(), worldcoords); //is this even the right way to do it?
+	trans = model_inv*view_inv*proj_inv*trans;
+	vec3 result = vec3(trans.m[12], trans.m[13], trans.m[14]); //extracting the result from the matrix...
+
+	return result;
 }
 
 void display(){
@@ -295,12 +302,12 @@ void init()
 						};
 	memcpy(vertices, temp, 108*sizeof(GLfloat)); 
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
-	GLfloat colors[] = {1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
+	GLfloat colors[] = {0.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 0.0f, 1.0f,
 
 						1.0f, 0.0f, 0.0f, 1.0f,
 						1.0f, 0.0f, 0.0f, 1.0f,
@@ -309,12 +316,19 @@ void init()
 						1.0f, 0.0f, 0.0f, 1.0f,
 						1.0f, 0.0f, 0.0f, 1.0f,
 
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						
+						0.0f, 1.0f, 0.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
+						0.0f, 1.0f, 0.0f, 1.0f,
 
 						1.0f, 1.0f, 0.0f, 1.0f,
 						1.0f, 1.0f, 0.0f, 1.0f,
@@ -323,19 +337,12 @@ void init()
 						1.0f, 1.0f, 0.0f, 1.0f,
 						1.0f, 1.0f, 0.0f, 1.0f,
 						
-						1.0f, 1.0f, 0.0f, 1.0f,
-						1.0f, 1.0f, 0.0f, 1.0f,
-						1.0f, 1.0f, 0.0f, 1.0f,
-						1.0f, 1.0f, 0.0f, 1.0f,
-						1.0f, 1.0f, 0.0f, 1.0f,
-						1.0f, 1.0f, 0.0f, 1.0f,
-						
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f,
-						1.0f, 0.0f, 0.0f, 1.0f
+						1.0f, 1.0f, 1.0f, 1.0f,
+						1.0f, 1.0f, 1.0f, 1.0f,
+						1.0f, 1.0f, 1.0f, 1.0f,
+						1.0f, 1.0f, 1.0f, 1.0f,
+						1.0f, 1.0f, 1.0f, 1.0f,
+						1.0f, 1.0f, 1.0f, 1.0f
 	};
 	// Set up the shaders
 	shaderProgramID = CompileShaders();
@@ -363,6 +370,9 @@ void init()
 	glDepthFunc(GL_LESS);
 }
 
+void keypress(unsigned char key, int x, int y){
+}
+
 int main(int argc, char** argv)
 {
 	cap = VideoCapture(0);
@@ -372,7 +382,7 @@ int main(int argc, char** argv)
 	glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
     glutInitWindowSize(frame.cols, frame.rows);
-    glutCreateWindow("GL");
+    glutCreateWindow("AR");
 	// Tell glut where the display function is
 	glutDisplayFunc(display);
 	glutKeyboardFunc(keypress);
