@@ -18,6 +18,8 @@ Mat perspective_warped_image;
 Point2f  src_pts[4], dst_pts[4];
 GLuint shaderProgramID;
 unsigned char* buffer;
+GLfloat vertices[108];
+GLuint numVertices;
 
 //Calibration variables
 bool calibrated = false;
@@ -30,7 +32,7 @@ vector<vector<Point3f>> objectPoints;
 Mat projection = Mat::zeros(4, 4, CV_64F);;
 Mat modelview = Mat::zeros(4, 4, CV_64F);;
 Mat openGLtoCV;
-mat4 model;
+mat4 model, view, persp_proj;
 int testImages = 0;
 double zNear = 0.1;
 double zFar = 500;
@@ -47,7 +49,7 @@ GLfloat* convertMatrixType(const cv::Mat& m);
 
 using namespace std;
 
-
+#pragma region SHADERS
 static const char* pVS = "                                                    \n\
 #version 330                                                                  \n\
                                                                               \n\
@@ -66,14 +68,15 @@ static const char* pFS = "                                              \n\
 #version 330                                                            \n\
                                                                         \n\
 out vec4 FragColor;                                                      \n\
-in vec4 color;                                                                          \n\
+in vec4 color;                                                           \n\
 void main()                                                               \n\
 {                                                                          \n\
-FragColor = color;									 \n\
+FragColor = color;															\n\
+//FragColor = vec4(1.0, 0.0, 0.0, 1.0);									 \n\
 }";
+#pragma endregion SHADERS
 
 
-// Shader Functions- click on + to expand
 #pragma region SHADER_FUNCTIONS
 static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum ShaderType)
 {
@@ -145,10 +148,9 @@ GLuint CompileShaders()
 }
 #pragma endregion SHADER_FUNCTIONS
 
-// VBO Functions - click on + to expand
 #pragma region VBO_FUNCTIONS
 GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
-	GLuint numVertices = 36;
+	numVertices = 36;
 	// Genderate 1 generic buffer object, called VBO
 	GLuint VBO;
  	glGenBuffers(1, &VBO);
@@ -156,7 +158,7 @@ GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
 	// Buffer will contain an array of vertices 
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	// After binding, we now fill our object with data, everything in "Vertices" goes to the GPU
-	glBufferData(GL_ARRAY_BUFFER, numVertices*7*sizeof(GLfloat), NULL, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, numVertices*7*sizeof(GLfloat), NULL, GL_STREAM_DRAW);
 	// if you have more data besides vertices (e.g., vertex colours or normals), use glBufferSubData to tell the buffer when the vertices array ends and when the colors start
 	glBufferSubData (GL_ARRAY_BUFFER, 0, numVertices*3*sizeof(GLfloat), vertices);
 	glBufferSubData (GL_ARRAY_BUFFER, numVertices*3*sizeof(GLfloat), numVertices*4*sizeof(GLfloat), colors);
@@ -179,22 +181,53 @@ void linkCurrentBuffertoShader(GLuint shaderProgramID){
 #pragma endregion VBO_FUNCTIONS
 
 
+void keypress(unsigned char key, int x, int y){
+	cout << "A button was pressed but I'm not going to do shit. #0FUCKSGIVEN\n";
+}
+
+void translateVertex (vec3 vertex, vec3 endpoint){
+	//calculate the translation matrix for the point and pointer movement
+	//mat4 mat_translation = translate(identity_mat4(), vec3(endpoint.v[0]-startpoint.v[0], -(endpoint.v[1]-startpoint.v[1]), -(endpoint.v[2]-startpoint.v[2])));
+	//mat4 mat_point = translate(identity_mat4(), vec3(startpoint.v[0], -startpoint.v[1], -startpoint.v[2]));
+	
+	
+
+	//convert the translation and point to model coordinates
+	//mat_translation = model_inv*view_inv*proj_inv*mat_translation;
+	//mat_point = model_inv*view_inv*proj_inv*mat_point;
+	//retrieve the translation and point from the matrix
+	for (int i=0; i<36; i++){
+		//edit the relevant vertices in the vertex array
+		if (vertices[3*i] == vertex.v[0] && vertices[3*i+1] == vertex.v[1] && vertices[3*i+2] == vertex.v[2]){
+					vertices[3*i] = endpoint.v[0];
+					vertices[3*i+1] = endpoint.v[1];
+					vertices[3*i+2] = endpoint.v[2];
+		}
+		//reload the vertex buffer
+		glBufferSubData (GL_ARRAY_BUFFER, 0, numVertices*3*sizeof(GLfloat), vertices);
+	}
+}
+
+vec3 convertToModelCoords(vec3 worldcoords){
+	//derive inverse of matrices
+	mat4 model_inv = inverse(model);
+	mat4 view_inv = inverse(view);
+	mat4 proj_inv = inverse(persp_proj);
+
+	return vec3(0, 0, 0);
+}
+
 void display(){
 
 	cap >> frame;
-
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
 
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		
-	if(!calibrated)
-	{
+	if(!calibrated){
 		calibrateCameraMatrix();
-	}
-
-	if(calibrated)
-	{
+	} else{
 		ChessBoard();
 	}
 
@@ -214,63 +247,96 @@ void display(){
 	glutPostRedisplay();
 }
 
-
 void init()
 {	
 	// Create 3 vertices that make up a triangle that fits on the viewport 
-	GLfloat vertices[] = {  
-						  -1.0f,  1.0f, -1.0f, 
-						   1.0f,  1.0f, -1.0f, 
-						   1.0f, -1.0f, -1.0f, 
-						   1.0f, -1.0f, -1.0f,  
-						  -1.0f, -1.0f, -1.0f, 
-						  -1.0f,  1.0f, -1.0f, 
+	GLfloat temp[] = {  
+							-1.0f,  1.0f, -1.0f, 
+							1.0f,  1.0f, -1.0f, 
+							1.0f, -1.0f, -1.0f, 
+							1.0f, -1.0f, -1.0f,  
+							-1.0f, -1.0f, -1.0f, 
+							-1.0f,  1.0f, -1.0f, 
 
-						  -1.0f,  1.0f, 1.0f,  
-						   1.0f,  1.0f, 1.0f, 
-						   1.0f, -1.0f, 1.0f, 
-						   1.0f, -1.0f, 1.0f,  
-						  -1.0f, -1.0f, 1.0f, 
-						  -1.0f,  1.0f, 1.0f, 
+							-1.0f,  1.0f, 1.0f,  
+							1.0f,  1.0f, 1.0f, 
+							1.0f, -1.0f, 1.0f, 
+							1.0f, -1.0f, 1.0f,  
+							-1.0f, -1.0f, 1.0f, 
+							-1.0f,  1.0f, 1.0f, 
 	
-						  -1.0f,  1.0f, -1.0f,
-						   1.0f,  1.0f, -1.0f,
-						   1.0f,  1.0f, 1.0f, 
-						   1.0f,  1.0f, 1.0f,
-						  -1.0f,  1.0f, 1.0f, 
-						  -1.0f,  1.0f, -1.0f, 
+							-1.0f,  1.0f, -1.0f,
+							1.0f,  1.0f, -1.0f,
+							1.0f,  1.0f, 1.0f, 
+							1.0f,  1.0f, 1.0f,
+							-1.0f,  1.0f, 1.0f, 
+							-1.0f,  1.0f, -1.0f, 
 
-						  -1.0f,  -1.0f, -1.0f, 
-						   1.0f,  -1.0f, -1.0f, 
-						   1.0f,  -1.0f, 1.0f,
-						   1.0f,  -1.0f, 1.0f, 
-						  -1.0f,  -1.0f, 1.0f, 
-						  -1.0f,  -1.0f, -1.0f,
+							-1.0f,  -1.0f, -1.0f, 
+							1.0f,  -1.0f, -1.0f, 
+							1.0f,  -1.0f, 1.0f,
+							1.0f,  -1.0f, 1.0f, 
+							-1.0f,  -1.0f, 1.0f, 
+							-1.0f,  -1.0f, -1.0f,
 
-						  -1.0f,   1.0f, 1.0f, 
-						  -1.0f,  -1.0f, 1.0f, 
-						  -1.0f,  -1.0f, -1.0f, 
-						  -1.0f,  -1.0f, -1.0f, 
-						  -1.0f,   1.0f, -1.0f, 
-						  -1.0f,   1.0f, 1.0f, 
+							-1.0f,   1.0f, 1.0f, 
+							-1.0f,  -1.0f, 1.0f, 
+							-1.0f,  -1.0f, -1.0f, 
+							-1.0f,  -1.0f, -1.0f, 
+							-1.0f,   1.0f, -1.0f, 
+							-1.0f,   1.0f, 1.0f, 
 	
-						   1.0f,   1.0f, 1.0f, 
-						   1.0f,  -1.0f, 1.0f, 
-						   1.0f,  -1.0f, -1.0f, 
-						   1.0f,  -1.0f, -1.0f, 
-						   1.0f,   1.0f, -1.0f, 
-						   1.0f,   1.0f, 1.0f
+							1.0f,   1.0f, 1.0f, 
+							1.0f,  -1.0f, 1.0f, 
+							1.0f,  -1.0f, -1.0f, 
+							1.0f,  -1.0f, -1.0f, 
+							1.0f,   1.0f, -1.0f, 
+							1.0f,   1.0f, 1.0f
 						};
+	memcpy(vertices, temp, 108*sizeof(GLfloat)); 
 	// Create a color array that identfies the colors of each vertex (format R, G, B, A)
-	GLfloat colors[] = {0.0f, 1.0f, 0.0f, 1.0f,
+	GLfloat colors[] = {1.0f, 0.0f, 0.0f, 1.0f,
 						1.0f, 0.0f, 0.0f, 1.0f,
-						0.0f, 0.0f, 1.0f, 1.0f,
-						0.0f, 1.0f, 0.0f, 1.0f,
 						1.0f, 0.0f, 0.0f, 1.0f,
-						0.0f, 0.0f, 1.0f, 1.0f,
-						0.0f, 1.0f, 0.0f, 1.0f,
 						1.0f, 0.0f, 0.0f, 1.0f,
-						0.0f, 0.0f, 1.0f, 1.0f};
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						1.0f, 1.0f, 0.0f, 1.0f,
+						
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f,
+						1.0f, 0.0f, 0.0f, 1.0f
+	};
 	// Set up the shaders
 	shaderProgramID = CompileShaders();
 	// Put the vertices and colors into a vertex buffer object
@@ -283,8 +349,8 @@ void init()
 	int view_mat_location = glGetUniformLocation (shaderProgramID, "view");
 	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
 
-	mat4 persp_proj = perspective(170.0, (float)frame.cols/(float)frame.rows, 0.1, 500.0);
-	mat4 view = identity_mat4();
+	persp_proj = perspective(170.0, (float)frame.cols/(float)frame.rows, 0.1, 500.0);
+	view = identity_mat4();
 	model = translate(identity_mat4(),vec3(0,0,-0.1));
 	
 	glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, persp_proj.m);
@@ -302,14 +368,14 @@ int main(int argc, char** argv)
 	cap = VideoCapture(0);
 	cap >> frame;
 	cap >> frame;
-	cout << "Width:" << frame.cols << " Height:" << frame.rows << endl;
 	// Set up the window
 	glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
     glutInitWindowSize(frame.cols, frame.rows);
-    glutCreateWindow("Hello Triangle");
+    glutCreateWindow("GL");
 	// Tell glut where the display function is
 	glutDisplayFunc(display);
+	glutKeyboardFunc(keypress);
 
 	 // A call to glewInit() must be done after glut is initialized!
     GLenum res = glewInit();
@@ -346,12 +412,12 @@ void calibrateCameraMatrix()
 
 		imagePoints.push_back(pointBuf);
 		
-		for(int i = 0; i<7; i++){
+		for(int i=0; i<7; i++){
             for(int j=0;j<7;j++){
                 objectCorners.push_back(cv::Point3f(float(i)*squareLength,float(j)*squareLength,0.0f));
             }
         }
-
+		
 		objectPoints.push_back(objectCorners);
 
 		cout << "pointBuf: " << objectCorners.size() << endl;
@@ -360,20 +426,16 @@ void calibrateCameraMatrix()
 		cout << "ImagePoints: " << imagePoints.size() << endl;
 		cout << "ObjectPoints: " << objectPoints.size() << endl;
 		cout << "************\n";
-	
-	}
 
-	if(testImages >= 1)
-	{
-		calibrated = true;
-		cout << "calibrating! No Images:" << testImages + 1 << endl;
+		
 		calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs, 0);
+		calibrated = true;
 		cout << "Just calibrated!\n";
 	}
 
 }
 
-void ChessBoard()
+void ChessBoard() 
 {
 	Mat gray;
 	vector<Point2f> points;				//this will be filled by the detected corners
@@ -386,14 +448,10 @@ void ChessBoard()
 
 	cvtColor(frame, gray, CV_BGR2GRAY); //source image
 		
-	//CALIB_CB_FAST_CHECK saves a lot of time on images
-	//that do not contain any chessboard corners
 	patternfound = findChessboardCorners(gray, patternsize, points, CALIB_CB_FAST_CHECK);
 
 	if(patternfound)
 	{
-
-		//cornerSubPix(gray, corners, Size(11, 11), Size(-1, -1),TermCriteria(CV_TERMCRIT_EPS + CV_TERMCRIT_ITER, 30, 0.1));
 
 		corners.push_back(points[0]);
 		corners.push_back(points[6]);
