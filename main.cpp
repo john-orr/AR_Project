@@ -27,8 +27,12 @@ GLfloat vertices[108];
 GLuint numVertices;
 
 //Calibration variables
+bool calibrateZ = false;
+double markerZvalue = -1;
+double baseRadius = 1;
 bool calibrated = false;
 bool grabbed = false;
+
 Size patternsize(7,7); //interior number of corners
 Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
 Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
@@ -242,6 +246,12 @@ void display(){
 		circle(frame, object_pt, radius, CV_RGB(0,0,255), 1, 8, 0);
 		found =false;
 	}
+
+	if(!calibrateZ)
+		{
+			baseRadius = radius;
+		}
+
 	vec3 temp = getClosest(object_pt);
 	//cout << "this is the closest point ";
 	//print(temp);
@@ -534,6 +544,12 @@ void ChessBoard()
 		GLfloat* modelV = convertMatrixType(modelview);
 		GLfloat* projV = convertMatrixType(projection);
 
+		if(!calibrateZ)
+		{
+			markerZvalue = modelview.at<double>(2,3);
+			baseRadius = radius;
+			calibrateZ = true;
+		}
 
 		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV);
 		glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, projV);
@@ -729,11 +745,19 @@ Point pointerLoc : the center of the tracking circle
 vec3 getClosest(Point pointerLoc)
 {
 	// change the image coordinate to a homogenous vec3
+	float Z;
+	if(radius !=0 && baseRadius != 0)
+	{
+		Z = -(radius/baseRadius)*markerZvalue;
+	}else
+	{
+		Z = -1;
+	}
+	float X = -(pointerLoc.x*Z)/cameraMatrix.at<double>(0,0);
+	float Y = (pointerLoc.y*Z)/cameraMatrix.at<double>(1,1);
+	
 
-	float X = -(pointerLoc.x*-1)/cameraMatrix.at<double>(0,0);
-	float Y = (pointerLoc.y*-1)/cameraMatrix.at<double>(1,1);
-
-	vec3 pointerLocHomogenous = vec3(X, Y, 1.0f);
+	vec3 pointerLocHomogenous = vec3(X, Y, Z);//1.0f);
 	// get the image point in world space 
 	worldPos = convertToModelCoords(pointerLocHomogenous);
 
