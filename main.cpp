@@ -1,3 +1,8 @@
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_DEPRECATE
+#endif
+
 #include <iostream>
 
 #include "opencv2/core/opengl_interop.hpp"
@@ -23,6 +28,7 @@ GLuint numVertices;
 
 //Calibration variables
 bool calibrated = false;
+bool grabbed = false;
 Size patternsize(7,7); //interior number of corners
 Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
 Mat distCoeffs = Mat::zeros(8, 1, CV_64F);
@@ -65,106 +71,8 @@ float find_euclidian(float r, float g, float b, float r_t, float g_t, float b_t)
 
 using namespace std;
 
-#pragma region SHADERS
-static const char* pVS = "                                                    \n\
-#version 330                                                                  \n\
-                                                                              \n\
-in vec3 vPosition;															  \n\
-in vec4 vColor;																  \n\
-out vec4 color;																 \n\
-uniform mat4 proj, view, model;												\n\
-                                                                               \n\
-void main()                                                                     \n\
-{                                                                                \n\
-    gl_Position = proj * view * model * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  \n\
-	color = vColor;							\n\
-}";
-
-static const char* pFS = "                                              \n\
-#version 330                                                            \n\
-                                                                        \n\
-out vec4 FragColor;                                                      \n\
-in vec4 color;                                                           \n\
-void main()                                                               \n\
-{                                                                          \n\
-FragColor = color;															\n\
-//FragColor = vec4(1.0, 0.0, 0.0, 1.0);									 \n\
-}";
-#pragma endregion SHADERS
-
 
 #pragma region SHADER_FUNCTIONS
-
-/*
-static void AddShader(GLuint ShaderProgram, const char* pShaderText, GLenum ShaderType)
-{
-	// create a shader object
-    GLuint ShaderObj = glCreateShader(ShaderType);
-
-    if (ShaderObj == 0) {
-        fprintf(stderr, "Error creating shader type %d\n", ShaderType);
-        exit(0);
-    }
-	// Bind the source code to the shader, this happens before compilation
-	glShaderSource(ShaderObj, 1, (const GLchar**)&pShaderText, NULL);
-	// compile the shader and check for errors
-    glCompileShader(ShaderObj);
-    GLint success;
-	// check for shader related errors using glGetShaderiv
-    glGetShaderiv(ShaderObj, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        GLchar InfoLog[1024];
-        glGetShaderInfoLog(ShaderObj, 1024, NULL, InfoLog);
-        fprintf(stderr, "Error compiling shader type %d: '%s'\n", ShaderType, InfoLog);
-        exit(1);
-    }
-	// Attach the compiled shader object to the program object
-    glAttachShader(ShaderProgram, ShaderObj);
-}
-
-GLuint CompileShaders()
-{
-	//Start the process of setting up our shaders by creating a program ID
-	//Note: we will link all the shaders together into this ID
-    GLuint shaderProgramID = glCreateProgram();
-    if (shaderProgramID == 0) {
-        fprintf(stderr, "Error creating shader program\n");
-        exit(1);
-    }
-
-	// Create two shader objects, one for the vertex, and one for the fragment shader
-    AddShader(shaderProgramID, pVS, GL_VERTEX_SHADER);
-    AddShader(shaderProgramID, pFS, GL_FRAGMENT_SHADER);
-
-    GLint Success = 0;
-    GLchar ErrorLog[1024] = { 0 };
-
-
-	// After compiling all shader objects and attaching them to the program, we can finally link it
-    glLinkProgram(shaderProgramID);
-	// check for program related errors using glGetProgramiv
-    glGetProgramiv(shaderProgramID, GL_LINK_STATUS, &Success);
-	if (Success == 0) {
-		glGetProgramInfoLog(shaderProgramID, sizeof(ErrorLog), NULL, ErrorLog);
-		fprintf(stderr, "Error linking shader program: '%s'\n", ErrorLog);
-        exit(1);
-	}
-
-	// program has been successfully linked but needs to be validated to check whether the program can execute given the current pipeline state
-    glValidateProgram(shaderProgramID);
-	// check for program related errors using glGetProgramiv
-    glGetProgramiv(shaderProgramID, GL_VALIDATE_STATUS, &Success);
-    if (!Success) {
-        glGetProgramInfoLog(shaderProgramID, sizeof(ErrorLog), NULL, ErrorLog);
-        fprintf(stderr, "Invalid shader program: '%s'\n", ErrorLog);
-        exit(1);
-    }
-	// Finally, use the linked shader program
-	// Note: this program will stay in effect for all draw calls until you replace it with another or explicitly disable its use
-    glUseProgram(shaderProgramID);
-	return shaderProgramID;
-}
-*/
 char* readShaderSource(const char* shaderFile) {   
     FILE* fp = fopen(shaderFile, "rb"); //!->Why does binary flag "RB" work and not "R"... wierd msvc thing?
 
@@ -288,23 +196,13 @@ void linkCurrentBuffertoShader(GLuint shaderProgramID){
 }
 #pragma endregion VBO_FUNCTIONS
 
-void translateVertex (vec3 vertex, vec3 endpoint){
-	//calculate the translation matrix for the point and pointer movement
-	//mat4 mat_translation = translate(identity_mat4(), vec3(endpoint.v[0]-startpoint.v[0], -(endpoint.v[1]-startpoint.v[1]), -(endpoint.v[2]-startpoint.v[2])));
-	//mat4 mat_point = translate(identity_mat4(), vec3(startpoint.v[0], -startpoint.v[1], -startpoint.v[2]));
-
-
-
-	//convert the translation and point to model coordinates
-	//mat_translation = model_inv*view_inv*proj_inv*mat_translation;
-	//mat_point = model_inv*view_inv*proj_inv*mat_point;
-	//retrieve the translation and point from the matrix
+void translateVertex (vec3 vertex, vec3 vector){
 	for (int i=0; i<36; i++){
 		//edit the relevant vertices in the vertex array
 		if (vertices[3*i] == vertex.v[0] && vertices[3*i+1] == vertex.v[1] && vertices[3*i+2] == vertex.v[2]){
-					vertices[3*i] = endpoint.v[0];
-					vertices[3*i+1] = endpoint.v[1];
-					vertices[3*i+2] = endpoint.v[2];
+					vertices[3*i] += vector.v[0];
+					vertices[3*i+1] += vector.v[1];
+					vertices[3*i+2] += vector.v[2];
 		}
 		//reload the vertex buffer
 		glBufferSubData (GL_ARRAY_BUFFER, 0, numVertices*3*sizeof(GLfloat), vertices);
@@ -345,8 +243,15 @@ void display(){
 		found =false;
 	}
 	vec3 temp = getClosest(object_pt);
-	cout << "this is the closest point ";
-	print(temp);
+	//cout << "this is the closest point ";
+	//print(temp);
+	if (grabbed){
+		endPos = worldPos;
+		vec3 translation =  endPos - start;
+		translateVertex(grabbed_vertex, translation);
+		grabbed_vertex += translation;
+		start = endPos;
+	}
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
 
 
@@ -499,13 +404,19 @@ void init()
 void keypress(unsigned char key, int x, int y){
 	if (key == 'g')
 	{
+		cout << "Grabbed is now true.\n";
+		grabbed = true;
 		grabbed_vertex = closestPoint;
 		start = worldPos;
 	}
 	if (key == 's')
 	{
+		cout << "Grabbed is now false.\n";
+		grabbed = false;
 		endPos = worldPos;
-		translateVertex(grabbed_vertex, endPos);
+		vec3 translation =  endPos - start;
+		translateVertex(grabbed_vertex, translation);
+		start = endPos;
 	}
 }
 
@@ -826,8 +737,8 @@ vec3 getClosest(Point pointerLoc)
 	// get the image point in world space 
 	worldPos = convertToModelCoords(pointerLocHomogenous);
 
-	cout << "this is where it is in world space ";
-	print(worldPos);
+	//cout << "this is where it is in world space ";
+	//print(worldPos);
 	// find the closest vertex 
 	int closest = 0; 
 	vec3 current;
