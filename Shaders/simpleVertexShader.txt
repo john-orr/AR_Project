@@ -1,0 +1,20 @@
+#version 330                                                                 
+                                                                              
+in vec3 vPosition;															  
+in vec4 vColor;																  
+out vec4 color;																 
+uniform mat4 proj, view, model;
+uniform vec3 selected;												
+                                                                               
+void main()                                                                     
+{                                                                                
+    gl_Position = proj * view * model * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  
+	if(selected.x == vPosition.x && selected.y == vPosition.y && selected.z == vPosition.z)
+	{
+		color = vec4( 1,1,1,1);
+	}
+	else
+	{
+		color = vColor;
+	}		
+}
