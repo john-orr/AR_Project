@@ -753,11 +753,22 @@ vec3 getClosest(Point pointerLoc)
 	{
 		Z = -1;
 	}
+	
 	float X = -(pointerLoc.x*Z)/cameraMatrix.at<double>(0,0);
 	float Y = (pointerLoc.y*Z)/cameraMatrix.at<double>(1,1);
+
+	//This takes the image coordinates of the green marker and converts them to world coordinates
+	if(calibrated)
+	{
+		float x = pointerLoc.x - cameraMatrix.at<double>(0,2);
+		float y = pointerLoc.y - cameraMatrix.at<double>(1,2);
+		X = -(x*Z)/cameraMatrix.at<double>(0,0);
+		Y = (y*Z)/cameraMatrix.at<double>(1,1);
+	}
 	
 
-	vec3 pointerLocHomogenous = vec3(X, Y, Z);//1.0f);
+	vec3 pointerLocHomogenous = vec3(X, Y, 1.0f);
+	
 	// get the image point in world space 
 	worldPos = convertToModelCoords(pointerLocHomogenous);
 
