@@ -73,6 +73,9 @@ bool find_rough(Mat src, Point& object_center, Rect& object);
 float find_euclidian(float r, float g, float b, float r_t, float g_t, float b_t);
 
 void thread(void* );
+void chessboard_thread(void* );
+GLfloat* modelV;
+GLfloat* projV;
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -269,13 +272,20 @@ void display(){
 	}
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
 
+	int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
+	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
+
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	if(!calibrated){
 		calibrateCameraMatrix();
-	} else{
-		ChessBoard();
+		if(calibrated)
+		_beginthread( chessboard_thread, 0, (void*)12 );
+	} 
+	else{
+		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV);
+		glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, projV);
 	}
 	int selected_loc = glGetUniformLocation(shaderProgramID, "selected");
 
@@ -477,6 +487,14 @@ void thread(void* arg){
 	}
 }
 
+void chessboard_thread(void* arg){
+	cout<<"started chessboard thread"<<endl;
+	while(true){
+	ChessBoard();
+	}
+}
+
+
 
 void calibrateCameraMatrix()
 {
@@ -554,12 +572,8 @@ void ChessBoard()
 		Rodrigues(rotation, rotationMatrix);
 		generateProjectionModelview(cameraMatrix, rotationMatrix, translation, projection, modelview);
 
-		int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
-		int view_mat_location = glGetUniformLocation (shaderProgramID, "view");
-		int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
-
-		GLfloat* modelV = convertMatrixType(modelview);
-		GLfloat* projV = convertMatrixType(projection);
+		modelV = convertMatrixType(modelview);
+		projV = convertMatrixType(projection);
 
 		if(!calibrateZ)
 		{
@@ -568,8 +582,7 @@ void ChessBoard()
 			calibrateZ = true;
 		}
 
-		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV);
-		glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, projV);
+
 
 	}
 
