@@ -4,7 +4,8 @@
 #endif
 
 #include <iostream>
-
+#include <Windows.h>
+#include <process.h>
 #include "opencv2/core/opengl_interop.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
@@ -61,6 +62,7 @@ GLfloat* convertMatrixType(const cv::Mat& m);
 vec3 getClosest(Point pointerLoc);
 float getDist(vec3 point, vec3 otherPoint);
 
+Point object_pt;
 bool found=false;
 Mat object_mat;
 Rect obj;
@@ -69,6 +71,8 @@ Mat mask;
 Mat getNormalizedRGB(const Mat& rgb);
 bool find_rough(Mat src, Point& object_center, Rect& object);
 float find_euclidian(float r, float g, float b, float r_t, float g_t, float b_t);
+
+void thread(void* );
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -238,10 +242,11 @@ void display(){
 	cap >> frame;
 
 	cap >> frame;
-	Point object_pt;
-	mask = Mat(frame.size(), CV_8UC1);
-	if(found == false)
-		found = find_rough(frame, object_pt, obj);
+	/*
+	if(found == false){
+		//found = find_rough(frame, object_pt, obj);
+	}
+	*/
 	if(found == true){
 		circle(frame, object_pt, radius, CV_RGB(0,0,255), 1, 8, 0);
 		found =false;
@@ -436,6 +441,10 @@ int main(int argc, char** argv)
 	cap = VideoCapture(0);
 	cap >> frame;
 	cap >> frame;
+
+	mask = Mat(frame.size(), CV_8UC1);
+	_beginthread( thread, 0, (void*)12 );
+
 	// Set up the window
 	glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
@@ -457,9 +466,17 @@ int main(int argc, char** argv)
 	glViewport (0, 0, frame.cols, frame.rows);
 	// Begin infinite event loop
 	glutMainLoop();
+
     return 0;
 
 }
+
+void thread(void* arg){
+	while(true){
+	found = find_rough(frame, object_pt, obj);
+	}
+}
+
 
 void calibrateCameraMatrix()
 {
