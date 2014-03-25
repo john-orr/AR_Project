@@ -354,17 +354,6 @@ void drawALLTheCubes(mat4 original){
 	}
 }
 
-
-void drawALLTheCubes(mat4 original){
-	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
-	for (int i=0; i<cubes.size(); i++){
-		mat4 model = translate(identity_mat4(), cubes[i]);
-		model = original*scale(model, vec3(0.25, 0.25, 0.25));
-		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, model.m);
-		glDrawArrays(GL_TRIANGLES, 0, 36);
-	}
-}
-
 void deleteCube(){
 	//find closest centre
 	int closest = 0; 
