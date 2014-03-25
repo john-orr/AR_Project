@@ -685,8 +685,6 @@ void chessboard_thread(void* arg){
 	}
 }
 
-
-
 void calibrateCameraMatrix()
 {
 	Mat gray;
@@ -897,7 +895,7 @@ bool find_rough(Mat src, Point& object_center, Rect& object){
 	vector<vector<Point> > contours;
 	vector<Vec4i> hierarchy;
 	vector<RotatedRect> objects;
-	getNormalizedRGB(src);
+	//getNormalizedRGB(src);
 	/*
 	cvtColor(src, src, CV_BGR2HSV);
 	inRange(src, Scalar(hue_min,lum_min,sat_min), Scalar(hue_max,lum_max,sat_max), mask);
@@ -983,6 +981,8 @@ vec3 getClosest(Point pointerLoc)
 	cout << "ModelView X:" << modelview.at<double>(0,3) << endl;
 	cout << "ModelView Y:" << modelview.at<double>(1,3) << endl;
 	cout << "ModelView Z:" << modelview.at<double>(2,3) << endl;
+	cout << "Base Radius:" << baseRadius << endl;
+	cout << "Radius:" << radius << endl;
 	cout << "Marker X:" << X << " Marker Y:" << Y << " Marker Z:" << Z << endl;
 
 	vec3 pointerLocHomogenous = vec3(X, Y, Z);
