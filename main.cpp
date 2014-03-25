@@ -36,9 +36,10 @@ vector<vec3> cubes;
 //Calibration variables
 bool calibrateZ = false;
 double markerZvalue = -1;
-double baseRadius = 1;
+double baseRadius = 0;
 bool calibrated = false;
 bool grabbed = false;
+bool hasInitialized = false;
 
 Size patternsize(7,7); //interior number of corners
 Mat cameraMatrix = Mat::eye(3, 3, CV_64F);
@@ -327,6 +328,7 @@ vec3 convertToModelCoords(vec3 worldcoords){
 	return result;
 }
 
+
 int getClosestCube(){
 	//find closest centre
 	int closest = 0; 
@@ -344,8 +346,6 @@ int getClosestCube(){
 	}
 
 	return closest;
-	//delete that cube
-	//
 }
 
 void drawALLTheCubes(mat4 original){
@@ -369,7 +369,6 @@ void drawALLTheCubes(mat4 original){
 }
 
 
-
 void display(){
 
 	cap >> frame;
@@ -382,10 +381,9 @@ void display(){
 	*/
 	if(found == true){
 		circle(frame, object_pt, radius, CV_RGB(0,0,255), 1, 8, 0);
-		found =false;
 	}
 
-	if(!calibrateZ)
+	if(!calibrateZ && baseRadius == 0)
 		{
 			baseRadius = radius;
 		}
@@ -422,29 +420,25 @@ void display(){
 	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
 
 	
-	if(!calibrated){
+	if(!calibrated)
+	{
 		calibrateCameraMatrix();
 		if(calibrated)
 		_beginthread( chessboard_thread, 0, (void*)12 );
 	} 
-	else{
+
+	if(hasInitialized)
+	{
 		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV);
 		glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, projV);
 	}
 
+	int selected_loc = glGetUniformLocation(shaderProgramID, "selected");
 
+	glUniform3f(selected_loc,temp.v[0],temp.v[1],temp.v[2]);
 	drawALLTheCubes(modelV_mat4);
 	glutSwapBuffers();
 
-	//buffer = new unsigned char[frame.cols*frame.rows*3];
-	//glReadPixels(0, 0, frame.cols, frame.rows, GL_BGR, GL_UNSIGNED_BYTE, buffer);
-	//Mat image(frame.rows, frame.cols, CV_8UC3, buffer);
-	//flip(image,image,0);
-
-	//openGLtoCV = image.clone();
-
-	//overlayImage();
-	//imshow("Show Image", frame);
 
 	glutPostRedisplay();
 }
@@ -631,7 +625,8 @@ void init()
 }
 
 void keypress(unsigned char key, int x, int y){
-	if (key == 'g')
+	
+	/*if (key == 'g')
 	{
 		cout << "Grabbed is now true.\n";
 		grabbed = true;
@@ -646,7 +641,7 @@ void keypress(unsigned char key, int x, int y){
 		vec3 translation =  endPos - start;
 		translateVertex(grabbed_vertex, translation);
 		start = endPos;
-	}
+	}*/
 	if (key == 'd'){
 		cout << "Deleting a cube.\n";
 		cubes.erase(cubes.begin() + selected_cube);
@@ -697,10 +692,13 @@ void thread(void* arg){
 
 void chessboard_thread(void* arg){
 	cout<<"started chessboard thread"<<endl;
-	while(true){
-	ChessBoard();
+	while(true)
+	{
+		ChessBoard();
 	}
 }
+
+
 
 void calibrateCameraMatrix()
 {
@@ -754,11 +752,11 @@ void ChessBoard()
 	Mat translation;					// The calculated translation of the chess board.
 	double squareLength = 1;
 	bool patternfound;
-
+	cout << "Error 1:\n";
 	cvtColor(frame, gray, CV_BGR2GRAY); //source image
-
+	cout << "Error 2:\n";
 	patternfound = findChessboardCorners(gray, patternsize, points, CALIB_CB_FAST_CHECK);
-
+	cout << "Error 3:\n";
 	if(patternfound)
 	{
 
@@ -780,6 +778,7 @@ void ChessBoard()
 
 		modelV = convertMatrixType(modelview);
 		projV = convertMatrixType(projection);
+		hasInitialized = true;
 
 		if(!calibrateZ)
 		{
@@ -794,7 +793,7 @@ void ChessBoard()
 								modelV[3], modelV[7], modelV[11], modelV[15]);
 
 	}
-
+	cout << "Error 4:\n";
 }
 
 void overlayImage()
@@ -984,29 +983,22 @@ Point pointerLoc : the center of the tracking circle
 vec3 getClosest(Point pointerLoc)
 {
 	// change the image coordinate to a homogenous vec3
-	float Z;
-	if(radius !=0 && baseRadius != 0)
-	{
-		Z = -(radius/baseRadius)*markerZvalue;
-	}else
-	{
-		Z = -1;
-	}
+	float Z, X, Y;
 
-	float X = -(pointerLoc.x*Z)/cameraMatrix.at<double>(0,0);
-	float Y = (pointerLoc.y*Z)/cameraMatrix.at<double>(1,1);
+	Z = (baseRadius/radius)*markerZvalue;
 
 	//This takes the image coordinates of the green marker and converts them to world coordinates
-	if(calibrated)
-	{
-		float x = pointerLoc.x - cameraMatrix.at<double>(0,2);
-		float y = pointerLoc.y - cameraMatrix.at<double>(1,2);
-		X = -(x*Z)/cameraMatrix.at<double>(0,0);
-		Y = (y*Z)/cameraMatrix.at<double>(1,1);
-	}
+	float x = pointerLoc.x - cameraMatrix.at<double>(0,2);
+	float y = pointerLoc.y - cameraMatrix.at<double>(1,2);
+	X = -(x*Z)/cameraMatrix.at<double>(0,0);
+	Y = (y*Z)/cameraMatrix.at<double>(1,1);
 
+	cout << "ModelView X:" << modelview.at<double>(0,3) << endl;
+	cout << "ModelView Y:" << modelview.at<double>(1,3) << endl;
+	cout << "ModelView Z:" << modelview.at<double>(2,3) << endl;
+	cout << "Marker X:" << X << " Marker Y:" << Y << " Marker Z:" << Z << endl;
 
-	vec3 pointerLocHomogenous = vec3(X, Y, 1.0f);
+	vec3 pointerLocHomogenous = vec3(X, Y, Z);
 
 	// get the image point in world space 
 	worldPos = convertToModelCoords(pointerLocHomogenous);
