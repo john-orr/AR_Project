@@ -283,20 +283,6 @@ GLuint generateQuadObjectBuffer(GLfloat vertices[], GLfloat tex[]) {
 	glBufferSubData (GL_ARRAY_BUFFER, numVertices*3*sizeof(GLfloat), numVertices*2*sizeof(GLfloat), tex);
 return VBOQ;
 }
-
-void linkQuadBuffertoShader(GLuint shaderProgramID){
-	GLuint numVertices = 6;
-	// find the location of the variables that we will be using in the shader program
-	GLuint positionID = glGetAttribLocation(shaderProgramID, "vPosition");
-	GLuint texID = glGetAttribLocation(shaderProgramID, "tc");
-	// Have to enable this
-	glEnableVertexAttribArray(positionID);
-	// Tell it where to find the position data in the currently active buffer (at index positionID)
-    glVertexAttribPointer(positionID, 3, GL_FLOAT, GL_FALSE, 0, 0);
-	// Similarly, for the color data.
-	glEnableVertexAttribArray(texID);
-	glVertexAttribPointer(texID, 4, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(numVertices*3*sizeof(GLfloat)));
-}
 #pragma endregion VBO_FUNCTIONS
 
 void translateVertex (vec3 vertex, vec3 vector){
@@ -368,6 +354,36 @@ void drawALLTheCubes(mat4 original){
 	}
 }
 
+
+void drawALLTheCubes(mat4 original){
+	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
+	for (int i=0; i<cubes.size(); i++){
+		mat4 model = translate(identity_mat4(), cubes[i]);
+		model = original*scale(model, vec3(0.25, 0.25, 0.25));
+		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, model.m);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+	}
+}
+
+void deleteCube(){
+	//find closest centre
+	int closest = 0; 
+	vec3 current;
+	float currentDist;
+	float closestDist = 500;
+	for (int i=0; i<cubes.size(); i++)
+	{
+		currentDist = getDist(worldPos,cubes[i]);
+		if(currentDist < closestDist)
+		{
+			closestDist = currentDist;
+			closest = i; 
+		}
+	}
+
+	//delete that cube
+	cubes.erase(cubes.begin() + closest);
+}
 
 void display(){
 
@@ -559,22 +575,7 @@ void init()
 		1.0, 0.0,
 		1.0, 1.0
 	};
-	/*
-	GLfloat quad[] = 
-	{
-		-1.0,1.0,0.0,
-		1.0,1.0,0.0,
-		1.0,-1.0,0.0,
-		-1.0,-1.0,0.0
-	};
-	GLfloat quad_tc[] =
-	{
-		.0,1.0,
-		1.0,1.0,
-		1.0,0.0,
-		0.0,0.0
-	};
-	*/
+
 
 #pragma endregion quad 
 
@@ -625,23 +626,6 @@ void init()
 }
 
 void keypress(unsigned char key, int x, int y){
-	
-	/*if (key == 'g')
-	{
-		cout << "Grabbed is now true.\n";
-		grabbed = true;
-		grabbed_vertex = closestPoint;
-		start = worldPos;
-	}
-	if (key == 's')
-	{
-		cout << "Grabbed is now false.\n";
-		grabbed = false;
-		endPos = worldPos;
-		vec3 translation =  endPos - start;
-		translateVertex(grabbed_vertex, translation);
-		start = endPos;
-	}*/
 	if (key == 'd'){
 		cout << "Deleting a cube.\n";
 		cubes.erase(cubes.begin() + selected_cube);
@@ -697,8 +681,6 @@ void chessboard_thread(void* arg){
 		ChessBoard();
 	}
 }
-
-
 
 void calibrateCameraMatrix()
 {
@@ -910,7 +892,7 @@ bool find_rough(Mat src, Point& object_center, Rect& object){
 	vector<vector<Point> > contours;
 	vector<Vec4i> hierarchy;
 	vector<RotatedRect> objects;
-	getNormalizedRGB(src);
+	//getNormalizedRGB(src);
 	/*
 	cvtColor(src, src, CV_BGR2HSV);
 	inRange(src, Scalar(hue_min,lum_min,sat_min), Scalar(hue_max,lum_max,sat_max), mask);
@@ -996,6 +978,8 @@ vec3 getClosest(Point pointerLoc)
 	cout << "ModelView X:" << modelview.at<double>(0,3) << endl;
 	cout << "ModelView Y:" << modelview.at<double>(1,3) << endl;
 	cout << "ModelView Z:" << modelview.at<double>(2,3) << endl;
+	cout << "Base Radius:" << baseRadius << endl;
+	cout << "Radius:" << radius << endl;
 	cout << "Marker X:" << X << " Marker Y:" << Y << " Marker Z:" << Z << endl;
 
 	vec3 pointerLocHomogenous = vec3(X, Y, Z);
