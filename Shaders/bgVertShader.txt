@@ -1,20 +1,29 @@
 #version 330                                                                 
                                                                               
 in vec3 vPosition;															  
-in vec4 vColor;																  
-out vec4 color;																 
-uniform mat4 proj, view, model;
-uniform bool selected;												
+in vec2 tc;																  
+out vec2 st;
+
+float s,t;																 											
                                                                                
 void main()                                                                     
 {                                                                                
-    gl_Position = proj * view * model * vec4(vPosition.x, vPosition.y, vPosition.z, 1.0);  
-	if(selected)
+    gl_Position = vec4(vPosition,1.0);
+	if(vPosition.x > 0)
 	{
-		color = vec4( 1,1,1,1);
+		s = 1;
 	}
-	else
+	else 
 	{
-		color = vColor;
-	}		
+		s = 0;
+	}
+	if(vPosition.y < 0)
+	{
+		t = 0;
+	}
+	else 
+	{
+		t = 1;
+	}
+	st = vec2(s,t);
 }

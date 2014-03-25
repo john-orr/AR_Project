@@ -26,7 +26,13 @@ GLuint shaderProgramID;
 unsigned char* buffer;
 GLfloat vertices[108];
 GLuint numVertices;
+GLuint bgShader;
+GLuint VBOQ; // VBO for the Quad
+GLuint VBO; // vbo for the cube
+int endOfColours,endOfQuad;
+int selected_cube;
 
+vector<vec3> cubes;
 //Calibration variables
 bool calibrateZ = false;
 double markerZvalue = -1;
@@ -43,7 +49,7 @@ vector<vector<Point3f>> objectPoints;
 Mat projection = Mat::zeros(4, 4, CV_64F);;
 Mat modelview = Mat::zeros(4, 4, CV_64F);;
 Mat openGLtoCV;
-mat4 model, view, persp_proj;
+mat4 modelV_mat4, view, persp_proj;
 vec3 worldPos, closestPoint, grabbed_vertex, start, endPos;
 int testImages = 0;
 double zNear = 0.1;
@@ -76,6 +82,8 @@ void thread(void* );
 void chessboard_thread(void* );
 GLfloat* modelV;
 GLfloat* projV;
+
+GLuint bg_tex; // texture that the open cv frame gets put into 
 
 // Macro for indexing vertex buffer
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -172,14 +180,53 @@ GLuint CompileShaders()
 	return shaderProgramID;
 }
 
+GLuint compileQuadShaders()
+{
+	bgShader = glCreateProgram();
+    if (bgShader == 0) {
+        fprintf(ErrorTxt, "Error creating shader program\n");
+        exit(1);
+    }
+
+	// Create two shader objects, one for the vertex, and one for the fragment shader
+    AddShader(bgShader, "../Shaders/bgVertShader.txt", GL_VERTEX_SHADER);
+    AddShader(bgShader, "../Shaders/bgFragShader.txt", GL_FRAGMENT_SHADER);
+
+    GLint Success = 0;
+    GLchar ErrorLog[1024] = { 0 };
+	// After compiling all shader objects and attaching them to the program, we can finally link it
+    glLinkProgram(bgShader);
+	// check for program related errors using glGetProgramiv
+    glGetProgramiv(bgShader, GL_LINK_STATUS, &Success);
+	if (Success == 0) {
+		glGetProgramInfoLog(bgShader, sizeof(ErrorLog), NULL, ErrorLog);
+		fprintf(ErrorTxt, "Error linking shader program: '%s'\n", ErrorLog);
+        exit(1);
+	}
+
+	// program has been successfully linked but needs to be validated to check whether the program can execute given the current pipeline state
+    glValidateProgram(bgShader);
+	// check for program related errors using glGetProgramiv
+    glGetProgramiv(bgShader, GL_VALIDATE_STATUS, &Success);
+    if (!Success) {
+        glGetProgramInfoLog(bgShader, sizeof(ErrorLog), NULL, ErrorLog);
+        fprintf(ErrorTxt, "Invalid shader program: '%s'\n", ErrorLog);
+        exit(1);
+    }
+	// Finally, use the linked shader program
+	// Note: this program will stay in effect for all draw calls until you replace it with another or explicitly disable its use
+    glUseProgram(bgShader);
+	return bgShader;
+}
 
 #pragma endregion SHADER_FUNCTIONS
 
 #pragma region VBO_FUNCTIONS
-GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
+GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[], GLfloat Quad[], GLfloat Quadtc[]) {
 	numVertices = 36;
+	int quadSize = 6;
+	int nextStart;
 	// Genderate 1 generic buffer object, called VBO
-	GLuint VBO;
  	glGenBuffers(1, &VBO);
 	// In OpenGL, we bind (make active) the handle to a target name and then execute commands on that target
 	// Buffer will contain an array of vertices 
@@ -188,7 +235,14 @@ GLuint generateObjectBuffer(GLfloat vertices[], GLfloat colors[]) {
 	glBufferData(GL_ARRAY_BUFFER, numVertices*7*sizeof(GLfloat), NULL, GL_STREAM_DRAW);
 	// if you have more data besides vertices (e.g., vertex colours or normals), use glBufferSubData to tell the buffer when the vertices array ends and when the colors start
 	glBufferSubData (GL_ARRAY_BUFFER, 0, numVertices*3*sizeof(GLfloat), vertices);
-	glBufferSubData (GL_ARRAY_BUFFER, numVertices*3*sizeof(GLfloat), numVertices*4*sizeof(GLfloat), colors);
+	nextStart = numVertices*3*sizeof(GLfloat);
+	glBufferSubData (GL_ARRAY_BUFFER,nextStart, numVertices*4*sizeof(GLfloat), colors);
+	nextStart += numVertices*4*sizeof(GLfloat);
+	endOfColours = nextStart;
+	glBufferSubData(GL_ARRAY_BUFFER, nextStart, quadSize*3*sizeof(GLfloat),Quad);
+	nextStart += quadSize*3*sizeof(GLfloat);
+	endOfQuad = nextStart; 
+	glBufferSubData(GL_ARRAY_BUFFER,nextStart, quadSize*2*sizeof(GLfloat),Quadtc);
 return VBO;
 }
 
@@ -204,6 +258,43 @@ void linkCurrentBuffertoShader(GLuint shaderProgramID){
 	// Similarly, for the color data.
 	glEnableVertexAttribArray(colorID);
 	glVertexAttribPointer(colorID, 4, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(numVertices*3*sizeof(GLfloat)));
+/*
+	glUseProgram(bgShader);
+	GLuint positionLoc = glGetAttribLocation(bgShader, "vPosition");
+	GLuint tcLoc = glGetAttribLocation(bgShader, "tc");
+	glEnableVertexAttribArray(positionLoc);
+	glVertexAttribPointer(positionLoc,3,GL_FLOAT,GL_FALSE,0,BUFFER_OFFSET(endOfColours));
+	glEnableVertexAttribArray(tcLoc);
+	glVertexAttribPointer(tcLoc,2,GL_FLOAT,GL_FALSE,0,BUFFER_OFFSET(endOfQuad));
+	*/
+}
+GLuint generateQuadObjectBuffer(GLfloat vertices[], GLfloat tex[]) {
+	numVertices = 6;
+	// Genderate 1 generic buffer object, called VBO
+	
+ 	glGenBuffers(1, &VBOQ);
+	// In OpenGL, we bind (make active) the handle to a target name and then execute commands on that target
+	// Buffer will contain an array of vertices 
+	glBindBuffer(GL_ARRAY_BUFFER, VBOQ);
+	// After binding, we now fill our object with data, everything in "Vertices" goes to the GPU
+	glBufferData(GL_ARRAY_BUFFER, numVertices*7*sizeof(GLfloat), NULL, GL_STREAM_DRAW);
+	glBufferSubData (GL_ARRAY_BUFFER, 0, numVertices*3*sizeof(GLfloat), vertices);
+	glBufferSubData (GL_ARRAY_BUFFER, numVertices*3*sizeof(GLfloat), numVertices*2*sizeof(GLfloat), tex);
+return VBOQ;
+}
+
+void linkQuadBuffertoShader(GLuint shaderProgramID){
+	GLuint numVertices = 6;
+	// find the location of the variables that we will be using in the shader program
+	GLuint positionID = glGetAttribLocation(shaderProgramID, "vPosition");
+	GLuint texID = glGetAttribLocation(shaderProgramID, "tc");
+	// Have to enable this
+	glEnableVertexAttribArray(positionID);
+	// Tell it where to find the position data in the currently active buffer (at index positionID)
+    glVertexAttribPointer(positionID, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	// Similarly, for the color data.
+	glEnableVertexAttribArray(texID);
+	glVertexAttribPointer(texID, 4, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(numVertices*3*sizeof(GLfloat)));
 }
 #pragma endregion VBO_FUNCTIONS
 
@@ -222,23 +313,62 @@ void translateVertex (vec3 vertex, vec3 vector){
 
 vec3 convertToModelCoords(vec3 worldcoords){
 	//make a mat4 version of the modelview matrix
-	GLfloat* modelV = convertMatrixType(modelview);
-	mat4 temp = mat4(modelV[0], modelV[4], modelV[8], modelV[12],
-						modelV[1], modelV[5], modelV[9], modelV[13],
-						modelV[2], modelV[6], modelV[10], modelV[14],
-						modelV[3], modelV[7], modelV[11], modelV[15]);
-
-	//derive inverse of the matrices
-	mat4 model_inv = inverse(temp);
-	mat4 view_inv = inverse(view);
-	mat4 proj_inv = inverse(persp_proj);
+	//this is now done in the chessboard function
+	//then use that to create the model matrix of the untranslated cube
+	mat4 model = modelV_mat4*scale(identity_mat4(), vec3(0.25, 0.25, 0.25));
+	
+	//derive inverse of the matrix
+	mat4 model_inv = inverse(model);
 
 	//undo the effects of those darn matrices
-	vec4 vec4_worldcoords = vec4(worldcoords, 1); //is this even the right way to do it?
-	vec3 result = model_inv*view_inv*proj_inv*vec4_worldcoords;
+	vec4 vec4_worldcoords = vec4(worldcoords, 1);
+	vec3 result = model_inv*vec4_worldcoords;
 
 	return result;
 }
+
+int getClosestCube(){
+	//find closest centre
+	int closest = 0; 
+	vec3 current;
+	float currentDist;
+	float closestDist = 500;
+	for (int i=0; i<cubes.size(); i++)
+	{
+		currentDist = getDist(worldPos,cubes[i]);
+		if(currentDist < closestDist)
+		{
+			closestDist = currentDist;
+			closest = i; 
+		}
+	}
+
+	return closest;
+	//delete that cube
+	//
+}
+
+void drawALLTheCubes(mat4 original){
+	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
+	int selected_loc = glGetUniformLocation(shaderProgramID, "selected");
+	selected_cube = getClosestCube();
+	for (int i=0; i<cubes.size(); i++){
+		mat4 model = translate(identity_mat4(), cubes[i]);
+		model = original*scale(model, vec3(0.25, 0.25, 0.25));
+		if(i == selected_cube)
+		{
+			glUniform1i(selected_loc, 1);
+		}
+		else 
+		{
+			glUniform1i(selected_loc, 0 );
+		}
+		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, model.m);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+	}
+}
+
+
 
 void display(){
 
@@ -271,13 +401,27 @@ void display(){
 		start = endPos;
 	}
 	perspective_warped_image = Mat::zeros(frame.rows, frame.cols, CV_8UC3);
+	flip(frame, frame, 0);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	// transfer contents of the cv:Mat to the texture
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,frame.cols,frame.rows,0,GL_BGR,GL_UNSIGNED_BYTE,frame.ptr());
+
+	// draw the quad
+	glUseProgram(bgShader);
+	glBindTexture(GL_TEXTURE_2D,bg_tex);
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	// rebind the cube vbo and shaders 
+
+	glUseProgram(shaderProgramID);
+	// draw the cube 
 	int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
 	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
 
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+	
 	if(!calibrated){
 		calibrateCameraMatrix();
 		if(calibrated)
@@ -287,22 +431,20 @@ void display(){
 		glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV);
 		glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, projV);
 	}
-	int selected_loc = glGetUniformLocation(shaderProgramID, "selected");
 
-	glUniform3f(selected_loc,temp.v[0],temp.v[1],temp.v[2]);
 
-	glDrawArrays(GL_TRIANGLES, 0, 36);
+	drawALLTheCubes(modelV_mat4);
 	glutSwapBuffers();
 
-	buffer = new unsigned char[frame.cols*frame.rows*3];
-	glReadPixels(0, 0, frame.cols, frame.rows, GL_BGR, GL_UNSIGNED_BYTE, buffer);
-	Mat image(frame.rows, frame.cols, CV_8UC3, buffer);
-	flip(image,image,0);
+	//buffer = new unsigned char[frame.cols*frame.rows*3];
+	//glReadPixels(0, 0, frame.cols, frame.rows, GL_BGR, GL_UNSIGNED_BYTE, buffer);
+	//Mat image(frame.rows, frame.cols, CV_8UC3, buffer);
+	//flip(image,image,0);
 
-	openGLtoCV = image.clone();
+	//openGLtoCV = image.clone();
 
-	overlayImage();
-	imshow("Show Image", frame);
+	//overlayImage();
+	//imshow("Show Image", frame);
 
 	glutPostRedisplay();
 }
@@ -399,26 +541,88 @@ void init()
 	};
 
 #pragma endregion vertices 
+
+#pragma region quad
+	
+	GLfloat quad[] = 
+	{
+		-1.0f, -1.0f,0.0f,
+		1.0f, -1.0f,0.0f,
+		-1.0f,  1.0f,0.0f,
+
+		-1.0f,  1.0f,0.0f,
+		1.0f, -1.0f,0.0f,
+		1.0f,  1.0f, 0.0f
+	};
+
+	GLfloat quad_tc[] = 
+	{
+		0.0f, 0.0f,
+		1.0f, 0.0f,
+		0.0f, 1.0f,
+
+		0.0, 1.0,
+		1.0, 0.0,
+		1.0, 1.0
+	};
+	/*
+	GLfloat quad[] = 
+	{
+		-1.0,1.0,0.0,
+		1.0,1.0,0.0,
+		1.0,-1.0,0.0,
+		-1.0,-1.0,0.0
+	};
+	GLfloat quad_tc[] =
+	{
+		.0,1.0,
+		1.0,1.0,
+		1.0,0.0,
+		0.0,0.0
+	};
+	*/
+
+#pragma endregion quad 
+
+	for (int x=0; x<4; x++){
+		for (int y=0; y<4; y++){
+			for (int z=0; z<4; z++){
+				cubes.push_back(vec3(2*x, 2*y, 2*z));
+			}
+		}
+	}
 	// Set up the shaders
 	shaderProgramID = CompileShaders();
+
+	bgShader = compileQuadShaders();
 	// Put the vertices and colors into a vertex buffer object
-	generateObjectBuffer(vertices, colors);
+	generateObjectBuffer(vertices, colors,quad, quad_tc);
 	// Link the current buffer to the shader
 	linkCurrentBuffertoShader(shaderProgramID);	
+
+
+	glGenTextures(1,&bg_tex);
+	glBindTexture(GL_TEXTURE_2D, bg_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); 
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); 
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,frame.cols,frame.rows,0,GL_BGR,GL_UNSIGNED_BYTE,frame.ptr());
+
 	glUseProgram (shaderProgramID);
 
 	int proj_mat_location = glGetUniformLocation (shaderProgramID, "proj");
 	int view_mat_location = glGetUniformLocation (shaderProgramID, "view");
 	int model_mat_location = glGetUniformLocation (shaderProgramID, "model");
-	
+
 
 	persp_proj = perspective(170.0, (float)frame.cols/(float)frame.rows, 0.1, 500.0);
 	view = identity_mat4();
-	model = translate(identity_mat4(),vec3(0,0,-0.1));
+	modelV_mat4 = identity_mat4();
 
 	glUniformMatrix4fv (proj_mat_location, 1, GL_FALSE, persp_proj.m);
 	glUniformMatrix4fv (view_mat_location, 1, GL_FALSE, view.m);
-	glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, model.m);
+	glUniformMatrix4fv (model_mat_location, 1, GL_FALSE, modelV_mat4.m);
 
 	// Enable depth test
 	glEnable(GL_DEPTH_TEST);
@@ -442,6 +646,10 @@ void keypress(unsigned char key, int x, int y){
 		vec3 translation =  endPos - start;
 		translateVertex(grabbed_vertex, translation);
 		start = endPos;
+	}
+	if (key == 'd'){
+		cout << "Deleting a cube.\n";
+		cubes.erase(cubes.begin() + selected_cube);
 	}
 }
 
@@ -493,8 +701,6 @@ void chessboard_thread(void* arg){
 	ChessBoard();
 	}
 }
-
-
 
 void calibrateCameraMatrix()
 {
@@ -582,7 +788,10 @@ void ChessBoard()
 			calibrateZ = true;
 		}
 
-
+		modelV_mat4 = mat4(modelV[0], modelV[4], modelV[8], modelV[12], 
+								modelV[1], modelV[5], modelV[9], modelV[13], 
+								modelV[2], modelV[6], modelV[10], modelV[14], 
+								modelV[3], modelV[7], modelV[11], modelV[15]);
 
 	}
 
@@ -783,7 +992,7 @@ vec3 getClosest(Point pointerLoc)
 	{
 		Z = -1;
 	}
-	
+
 	float X = -(pointerLoc.x*Z)/cameraMatrix.at<double>(0,0);
 	float Y = (pointerLoc.y*Z)/cameraMatrix.at<double>(1,1);
 
@@ -795,10 +1004,10 @@ vec3 getClosest(Point pointerLoc)
 		X = -(x*Z)/cameraMatrix.at<double>(0,0);
 		Y = (y*Z)/cameraMatrix.at<double>(1,1);
 	}
-	
+
 
 	vec3 pointerLocHomogenous = vec3(X, Y, 1.0f);
-	
+
 	// get the image point in world space 
 	worldPos = convertToModelCoords(pointerLocHomogenous);
 
@@ -814,7 +1023,7 @@ vec3 getClosest(Point pointerLoc)
 		current.v[0] = vertices[3*i];
 		current.v[1] = vertices[3*i+1];
 		current.v[2] = vertices[3*i+2];
-	
+
 		currentDist = getDist(worldPos,current);
 		if(currentDist < closestDist)
 		{
@@ -833,7 +1042,7 @@ vec3 getClosest(Point pointerLoc)
 float getDist(vec3 point, vec3 otherPoint)
 {
 	float dist; 
-	
+
 	float xDiff = point.v[0] - otherPoint.v[0];
 	float yDiff = point.v[1] - otherPoint.v[1];
 	float zDiff = point.v[2] - otherPoint.v[2];
